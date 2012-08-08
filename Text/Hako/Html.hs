@@ -8,8 +8,10 @@ module Text.Hako.Html
 , ToHtml
 , toHtml
 , fromHtml
-, (<++>)
 ) where
+
+import Data.Monoid
+import qualified Data.Text as T
 
 -- | Basic HTML-encoding: converts all special HTML characters into the
 -- corresponding entities.
@@ -53,6 +55,9 @@ instance ToHtml Html where
 instance ToHtml [Char] where
     toHtml = htmlEncode
 
+instance ToHtml T.Text where
+    toHtml = htmlEncode . T.unpack
+
 -- | Implement an instance for 'Maybe', so that 'Nothing' is leniently 
 -- converted to an empty string, and 'Just's are unpacked.
 instance ToHtml a => ToHtml (Maybe a) where
@@ -68,14 +73,13 @@ instance (ToHtml a, ToHtml b) => ToHtml (Either a b) where
 -- | Lists are automatically folded using straightforward concatenation.
 instance ToHtml a => ToHtml [a] where
     toHtml [] = Html ""
-    toHtml xs = foldl1 (<++>) $ map toHtml xs
+    toHtml xs = foldl1 (<>) $ map toHtml xs
 
 -- | All other types in 'Show' default to HTML-encoding their 'show'
 -- representation.
 instance Show a => ToHtml a where
     toHtml = htmlEncode . show
 
--- | Concatenate two 'Html's together.
--- The 'Html' equivalent to list concatenation (@++@)
-(<++>) :: Html -> Html -> Html
-(Html a) <++> (Html b) = Html (a ++ b)
+instance Monoid Html where
+  mempty = Html ""
+  mappend (Html a) (Html b) = Html (a ++ b)

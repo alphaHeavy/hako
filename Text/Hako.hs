@@ -43,7 +43,7 @@
 module Text.Hako
 ( hako
 , hakof
-, HH.Html (..)
+, HH.fromHtml
 ) where
 
 import Text.Hako.Parsing

@@ -3,15 +3,19 @@ module Text.Hako.Parsing
 ( parseTemplateFromString
 ) where
 
-import Text.Parsec
+import Control.Monad.Trans.Class
+import Data.Monoid
 import Language.Haskell.TH
 import Language.Haskell.Meta.Parse
+import Text.Parsec
 import Text.Parsec.String
 import Text.Hako.Html
 
 -- | Hako's main parser, suitable as a quoteExpr.
-parseTemplateFromString :: String -> ExpQ
-parseTemplateFromString s = either (error . show) return $ parse template [] s
+parseTemplateFromString :: String -> Q Exp
+parseTemplateFromString s = do
+  exp <- runParserT template () "Hako" s
+  return $ either (error . show) id exp
 
 data Template = Template [Dec] [Exp]
 
@@ -28,100 +32,126 @@ tpack (Template defs exps) =
         then body
         else LetE defs body
 
-template :: Stream s m Char => ParsecT s u m Exp
+template :: ParsecT String () Q Exp
 template = do
     tfs <- many templateFragment
     return $ tpack $ foldl1 tjoin tfs
 
-templateFragment :: Stream s m Char => ParsecT s u m Template
+templateFragment :: ParsecT String () Q Template
 templateFragment = try templateDefFragment
+                 <|> try templateLoopFragment
                  <|> templateExpFragment
                  <|> templateLitFragment
                  <?> "template fragment"
 
-templateDefFragment :: Stream s m Char => ParsecT s u m Template
+templateDefFragment :: ParsecT String () Q Template
 templateDefFragment = do
-    defs <- blockDef
-    return $ Template defs []
+    def <- blockDef
+    return $ Template [def] []
 
-templateExpFragment :: Stream s m Char => ParsecT s u m Template
+templateLoopFragment :: ParsecT String () Q Template
+templateLoopFragment = do
+    exp <- forLoop
+    return $ Template [] [exp]
+
+templateExpFragment :: ParsecT String () Q Template
 templateExpFragment = do
     exp <- haskellExpr
     return $ Template [] [exp]
 
-templateLitFragment :: Stream s m Char => ParsecT s u m Template
+templateLitFragment :: ParsecT String () Q Template
 templateLitFragment = do
     exp <- literalText
     return $ Template [] [exp]
 
 emptyLiteralExp :: Exp
-emptyLiteralExp = AppE (ConE . mkName $ "Html") $ LitE $ StringL ""
+emptyLiteralExp = AppE (ConE 'Html) $ LitE $ StringL ""
 
 expJoin :: Exp -> Exp -> Exp
-expJoin a b = AppE (AppE (VarE . mkName $ "<++>") a) b
+expJoin a b = AppE (AppE (VarE '(<>)) a) b
 
 expWrap :: Exp -> Exp
-expWrap a = AppE (VarE . mkName $ "toHtml") a
+expWrap a = AppE (VarE 'toHtml) a
 
-blockDef :: Stream s m Char => ParsecT s u m [Dec]
+-- We might have a {def const = some fixed template}
+-- Or we might have {def f x y = some dynamic template using {x} and {y}}
+-- We could also have patterns {def f (x:_) = first {x}}
+blockDef :: ParsecT String () Q Dec
 blockDef = do
     string "{def"
     space
-    leader <- manyTill anyChar $ char '=' 
+    leader <- manyTill anyChar (char '=')
     inner <- template
     string "}"
-    let decs = parseDecs $ leader ++ " = " ++ pprint inner
-    case decs of
-        Right d -> return d
-        Left err -> error err
+    case parseExp ("let " ++ leader ++ " = 42 in 42") of
+      Right (LetE [ValD p _ _] _) -> return $ ValD p (NormalB inner) []
+      Right (LetE [FunD n [Clause ps _ _]] _) -> return $ FunD n [Clause ps (NormalB inner) []]
+      Right _ -> error "the definition leader did not parse into one of the expected constructs"
+      Left err -> error err
 
-literalText :: Stream s m Char => ParsecT s u m Exp
+-- Turn {for x in list: <a>{x}</a>} into: mconcat . map (\x -> TEMPLATE_EXPR) list
+forLoop :: ParsecT String () Q Exp
+forLoop = do
+    string "{for"
+    space
+    var <- manyTill anyChar $ string " in "
+    lst <- manyTill anyChar $ char ':'
+    inner <- template
+    string "}"
+    let varPat = either error id $ parsePat var
+        funExpr = LamE [varPat] inner
+        lstExpr = parseExp lst
+    case lstExpr of
+      Right e -> return $ VarE 'mconcat `AppE` (VarE 'map `AppE` funExpr `AppE` e)
+      Left err -> error err
+
+literalText :: ParsecT String () Q Exp
 literalText = do
     str <- many1 $ noneOf "{}"
-    return $ AppE (ConE . mkName $ "Html") $ LitE $ StringL str
+    return $ AppE (ConE 'Html) $ LitE $ StringL str
 
-haskellExpr :: Stream s m Char => ParsecT s u m Exp
+haskellExpr :: ParsecT String () Q Exp
 haskellExpr = do
     e <- haskellExpr'
     return $ expWrap e
 
-haskellExpr' :: Stream s m Char => ParsecT s u m Exp
+haskellExpr' :: ParsecT String () Q Exp
 haskellExpr' = do
     _ <- char '{'
     src <- haskellText
     _ <- char '}'
     either fail return $ parseExp src
 
-haskellText :: Stream s m Char => ParsecT s u m String
+haskellText :: ParsecT String () Q String
 haskellText = do
     parts <- many1 haskellPart
     return $ concat parts
 
-bracedText :: Stream s m Char => ParsecT s u m String
+bracedText :: ParsecT String () Q String
 bracedText = do
     char '{'
     inner <- haskellText
     char '}'
     return $ "{" ++ inner ++ "}"
 
-haskellPart :: Stream s m Char => ParsecT s u m String
+haskellPart :: ParsecT String () Q String
 haskellPart = quotedChar
             <|> quotedEscapedChar
             <|> quotedString
             <|> bracedText
             <|> haskellOther
 
-haskellOther :: Stream s m Char => ParsecT s u m String
+haskellOther :: ParsecT String () Q String
 haskellOther = many1 $ noneOf "\"'{}"
 
-quotedChar :: Stream s m Char => ParsecT s u m String
+quotedChar :: ParsecT String () Q String
 quotedChar = do
     char '\''
     c <- noneOf "\\"
     char '\''
     return ['\'', c, '\'']
 
-quotedEscapedChar :: Stream s m Char => ParsecT s u m String
+quotedEscapedChar :: ParsecT String () Q String
 quotedEscapedChar = do
     char '\''
     char '\\'
@@ -129,7 +159,7 @@ quotedEscapedChar = do
     char '\''
     return ['\'', '\\', c, '\'']
 
-quotedString :: Stream s m Char => ParsecT s u m String
+quotedString :: ParsecT String () Q String
 quotedString = do
     char '"'
     strs <- many quotedStringPart

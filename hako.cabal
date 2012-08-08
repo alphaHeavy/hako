@@ -7,7 +7,7 @@ Name:                hako
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.2.0
+Version:             0.2.1
 
 -- A short (one-line) description of the package.
 Synopsis:            A mako-like quasi-quoter template library
@@ -15,13 +15,13 @@ Synopsis:            A mako-like quasi-quoter template library
 -- A longer description of the package.
 Description:      A quasi-quote based HTML template library with a simplistic
                   approach, Hako borrows its philosophy from Mako, a popular
-				  Python template library. The idea is that the template 
-				  mechanism itself should be kept simple, while exposing the
-				  full expressivity of Haskell itself inside the templates.
-				  
-				  At the same time, any value interpolated into a template gets
-				  HTML-encoded by default, but you can override this behavior
-				  by providing your own instances of the 'ToHtml' typeclass.
+          Python template library. The idea is that the template
+          mechanism itself should be kept simple, while exposing the
+          full expressivity of Haskell itself inside the templates.
+
+          At the same time, any value interpolated into a template gets
+          HTML-encoded by default, but you can override this behavior
+          by providing your own instances of the 'ToHtml' typeclass.
 
 -- The license under which the package is released.
 License:             BSD3
@@ -37,7 +37,7 @@ Author:              Tobias Dammers
 Maintainer:          tdammers@gmail.com
 
 -- A copyright notice.
--- Copyright:           
+-- Copyright:
 
 Category:            Text
 
@@ -45,7 +45,7 @@ Build-type:          Simple
 
 -- Extra files to be distributed with the package, such as examples or
 -- a README.
--- Extra-source-files:  
+-- Extra-source-files:
 
 -- Constraint on the version of Cabal needed to build this package.
 Cabal-version:       >=1.8
@@ -56,19 +56,21 @@ Extra-source-files:
 Library
   -- Modules exported by the library.
   Exposed-modules:     Text.Hako, Text.Hako.Parsing, Text.Hako.Html
-  
+
   -- Packages needed in order to build this package.
   Build-depends:       parsec >= 3.0 && < 4.0
                ,       base >= 3.0 && < 5.0
+               ,       text
+               ,       transformers
                ,       template-haskell >= 2.5 && < 3.0
                ,       haskell-src-meta >= 0.5 && < 0.6
-  
+
   -- Modules not exported by this package.
-  -- Other-modules:       
-  
+  -- Other-modules:
+
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
-  -- Build-tools:         
-  
+  -- Build-tools:
+
 Test-suite tests
     Type:             exitcode-stdio-1.0
     Hs-source-dirs:   tests
